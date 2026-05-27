@@ -1,53 +1,47 @@
 import { Types } from 'mongoose';
 import { GeneratedPaper, IGeneratedPaperDoc } from '../models/GeneratedPaper';
-import { Assignment } from '../models/Assignment';
-import { ApiError } from '../utils/ApiError';
-import type { IQuestionTypeConfig, ISection, IQuestion, Difficulty } from '../types';
-
-const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
-
-function mockQuestion(no: number, type: string, marks: number): IQuestion {
-  const diff = DIFFICULTIES[no % 3];
-  return {
-    questionText: '[' + diff.toUpperCase() + '] Sample ' + type + ' question #' + no + ': Explain the concept with relevant examples.',
-    type: type as IQuestion['type'],
-    difficulty: diff,
-    marks,
-    answer: 'Model answer for question #' + no + '. Demonstrates the key concepts clearly.',
-  };
-}
-
-function buildSections(questionTypes: IQuestionTypeConfig[]): ISection[] {
-  const labels = ['A', 'B', 'C', 'D', 'E'];
-  return questionTypes.map((qt, idx) => ({
-    title: 'Section ' + (labels[idx] ?? String(idx + 1)),
-    instruction: qt.type + '. Attempt all questions. Each question carries ' + qt.marks + (qt.marks > 1 ? ' marks' : ' mark') + '.',
-    questions: Array.from({ length: qt.count }, (_, i) => mockQuestion(i + 1, qt.type, qt.marks)),
-  }));
-}
+import { Assignment }                          from '../models/Assignment';
+import { ApiError }                            from '../utils/ApiError';
+import { generatePaperWithAi }                 from './ai/gemini.service';
+import { buildFallbackPaper }                  from './ai/fallbackPaper.service';
+import type { ISection }                       from '../types';
 
 export const resultService = {
 
+  // ── Generate full paper ────────────────────────────────────────────────────
   async generate(assignmentId: string): Promise<IGeneratedPaperDoc> {
     const assignment = await Assignment.findById(assignmentId);
     if (!assignment) throw ApiError.notFound('Assignment not found');
+
     assignment.status = 'generating';
     await assignment.save();
+
     try {
-      await GeneratedPaper.deleteOne({ assignmentId: new Types.ObjectId(assignmentId) });
-      const sections = buildSections(assignment.questionTypes);
-      const totalMarks = assignment.questionTypes.reduce((sum, qt) => sum + qt.count * qt.marks, 0);
-      const paper = await GeneratedPaper.create({
+      // Remove any existing paper
+      await GeneratedPaper.deleteOne({
         assignmentId: new Types.ObjectId(assignmentId),
-        title: assignment.title,
-        subject: assignment.subject,
-        grade: assignment.grade,
-        totalMarks,
-        sections,
       });
+
+      // Call AI (or fallback)
+      const { paper, source, model } = await generatePaperWithAi(assignment);
+
+      const saved = await GeneratedPaper.create({
+        assignmentId:     new Types.ObjectId(assignmentId),
+        title:            paper.title,
+        subject:          paper.subject,
+        grade:            paper.grade,
+        totalMarks:       paper.totalMarks,
+        sections:         paper.sections,
+        generationSource: source,
+        modelName:        model,
+        generatedAt:      new Date(),
+      });
+
       assignment.status = 'completed';
       await assignment.save();
-      return paper;
+
+      console.log('[Result] Paper saved. Source: ' + source + ', Model: ' + model);
+      return saved;
     } catch (err) {
       assignment.status = 'failed';
       await assignment.save();
@@ -55,39 +49,58 @@ export const resultService = {
     }
   },
 
+  // ── Get paper by assignment ID ─────────────────────────────────────────────
   async getByAssignmentId(assignmentId: string): Promise<IGeneratedPaperDoc> {
-    const paper = await GeneratedPaper.findOne({
-  assignmentId: new Types.ObjectId(assignmentId),
-});
-    if (!paper) throw ApiError.notFound('Generated paper not found');
-    return paper;
-  },
-
-  async regenerateFull(assignmentId: string): Promise<IGeneratedPaperDoc> {
-    return this.generate(assignmentId);
-  },
-
-  async regenerateSection(assignmentId: string, sectionTitle: string): Promise<IGeneratedPaperDoc> {
     const paper = await GeneratedPaper.findOne({
       assignmentId: new Types.ObjectId(assignmentId),
     });
     if (!paper) throw ApiError.notFound('Generated paper not found');
+    return paper;
+  },
+
+  // ── Regenerate full paper ──────────────────────────────────────────────────
+  async regenerateFull(assignmentId: string): Promise<IGeneratedPaperDoc> {
+    return this.generate(assignmentId);
+  },
+
+  // ── Regenerate single section ──────────────────────────────────────────────
+  async regenerateSection(
+    assignmentId: string,
+    sectionTitle: string
+  ): Promise<IGeneratedPaperDoc> {
+    const paper = await GeneratedPaper.findOne({
+      assignmentId: new Types.ObjectId(assignmentId),
+    });
+    if (!paper) throw ApiError.notFound('Generated paper not found');
+
     const assignment = await Assignment.findById(assignmentId);
     if (!assignment) throw ApiError.notFound('Assignment not found');
+
     const idx = paper.sections.findIndex(
       s => s.title.toLowerCase() === sectionTitle.toLowerCase()
     );
     if (idx === -1) throw ApiError.notFound('Section not found: ' + sectionTitle);
+
     const qt = assignment.questionTypes[idx];
     if (!qt) throw ApiError.badRequest('No matching question type for this section');
-    paper.sections[idx] = {
-      title: paper.sections[idx].title,
+
+    // Build a fresh section via fallback (AI section-level generation in Phase 5)
+    const { sections } = buildFallbackPaper(
+      assignment.title,
+      assignment.subject,
+      assignment.grade,
+      [qt]
+    );
+
+    const newSection: ISection = {
+      title:       paper.sections[idx].title,
       instruction: paper.sections[idx].instruction,
-      questions: Array.from({ length: qt.count }, (_, i) =>
-        mockQuestion(i + 1, qt.type, qt.marks)
-      ),
+      questions:   sections[0].questions,
     };
+
+    paper.sections[idx] = newSection;
     await paper.save();
+
     return paper;
   },
 };
