@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "nodemon",
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "type-check": "tsc --noEmit"
-  },
+  "dev": "concurrently \"npm run dev:backend\" \"npm run dev:worker\"",
+  "dev:backend": "nodemon --config nodemon.backend.json",
+  "dev:worker": "nodemon --config nodemon.worker.json",
+  "build": "tsc --project tsconfig.json",
+  "start": "node dist/server.js",
+  "start:worker": "node dist/worker.js",
+  "type-check": "tsc --noEmit"
+},
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "bullmq": "^5.4.2",
@@ -24,6 +27,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/morgan": "^1.9.9",
@@ -33,6 +37,7 @@
     "@types/ws": "^8.5.10",
     "nodemon": "^3.1.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "concurrently": "^8.2.2"
   }
 }

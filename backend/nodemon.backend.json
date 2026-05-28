@@ -1,0 +1,1 @@
+{"watch":["src"],"ext":"ts,json","ignore":["src/workers/**"],"exec":"ts-node src/server.ts"}

@@ -14,8 +14,12 @@ export const env = {
   FRONTEND_URL:   process.env.FRONTEND_URL || 'http://localhost:3000',
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
   DEMO_MODE:      process.env.DEMO_MODE === 'true',
+  REDIS_URL:      process.env.REDIS_URL || '',
+  QUEUE_NAME:     process.env.QUEUE_NAME || 'assessment-generation',
 } as const;
 
-// AI is available only when key exists and demo mode is off
 export const isAiAvailable = (): boolean =>
   Boolean(env.GEMINI_API_KEY) && !env.DEMO_MODE;
+
+export const isRedisAvailable = (): boolean =>
+  Boolean(env.REDIS_URL);

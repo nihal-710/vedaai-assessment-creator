@@ -1,6 +1,10 @@
-import { Request, Response } from 'express';
+import { Request, Response }  from 'express';
 import { asyncHandler }       from '../utils/asyncHandler';
 import { assignmentService }  from '../services/assignment.service';
+import { jobService }         from '../services/job.service';
+import { addGenerationJob }   from '../queues/generation.queue';
+import { isRedisAvailable }   from '../config/env';
+import { resultService }      from '../services/result.service';
 
 export const assignmentController = {
 
@@ -28,12 +32,34 @@ export const assignmentController = {
   }),
 
   generate: asyncHandler(async (req: Request, res: Response) => {
-    const { resultService } = await import('../services/result.service');
+    await assignmentService.getById(req.params.id);
+
+    if (isRedisAvailable()) {
+      const jobRecord   = await jobService.create(req.params.id, 'pending');
+      const jobRecordId = (jobRecord._id as { toString(): string }).toString();
+      const bullJobId   = await addGenerationJob(req.params.id, jobRecordId);
+
+      await assignmentService.updateStatus(req.params.id, 'generating');
+
+      res.json({
+        success: true,
+        message: 'Generation job queued',
+        data: {
+          assignmentId: req.params.id,
+          jobId:        jobRecordId,
+          bullJobId,
+          status:       'queued',
+        },
+      });
+      return;
+    }
+
+    console.warn('[Generate] Redis unavailable — running direct generation');
     const paper = await resultService.generate(req.params.id);
     res.json({
       success: true,
+      message: 'Paper generated directly (Redis unavailable)',
       data:    paper,
-      message: 'Paper generated successfully',
     });
   }),
 };
