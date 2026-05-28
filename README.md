@@ -279,12 +279,13 @@ PDF export is handled entirely on the client side using **jsPDF** and **html2can
 
 ---
 
-## Section Regeneration
+## Regeneration Features
 
-- **Regenerate Full Paper:** Queues a new BullMQ job for the entire assignment. The existing result is replaced once the job completes.
-- **Regenerate Section:** Sends a targeted request to regenerate only a specific section (e.g., Section B). The rest of the paper is preserved. This is faster and does not require re-generating the full paper.
+- **Regenerate Full Paper:** Re-generates the complete question paper for the selected assignment and replaces the existing result.
+- **Regenerate Section:** Re-generates only one selected section while keeping the remaining sections unchanged.
+- **Loading States:** Buttons show loading states during regeneration to prevent duplicate actions.
 
-Both operations emit real-time Socket.io events so the UI stays in sync during processing.
+> Note: In demo/fallback mode, regenerated questions may follow the same template structure. With Gemini AI enabled, regeneration can produce fresh AI-generated questions.
 
 ---
 
