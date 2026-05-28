@@ -10,44 +10,39 @@ export const resultService = {
 
   // ── Generate full paper ────────────────────────────────────────────────────
   async generate(assignmentId: string): Promise<IGeneratedPaperDoc> {
-    const assignment = await Assignment.findById(assignmentId);
-    if (!assignment) throw ApiError.notFound('Assignment not found');
+  const assignment = await Assignment.findById(assignmentId);
+  if (!assignment) throw ApiError.notFound('Assignment not found');
 
-    assignment.status = 'generating';
+  try {
+    await GeneratedPaper.deleteOne({
+      assignmentId: new Types.ObjectId(assignmentId),
+    });
+
+    const { paper, source, model } = await generatePaperWithAi(assignment);
+
+    const saved = await GeneratedPaper.create({
+      assignmentId:     new Types.ObjectId(assignmentId),
+      title:            paper.title,
+      subject:          paper.subject,
+      grade:            paper.grade,
+      totalMarks:       paper.totalMarks,
+      sections:         paper.sections,
+      generationSource: source,
+      modelName:        model,
+      generatedAt:      new Date(),
+    });
+
+    assignment.status = 'completed';
     await assignment.save();
 
-    try {
-      // Remove any existing paper
-      await GeneratedPaper.deleteOne({
-        assignmentId: new Types.ObjectId(assignmentId),
-      });
-
-      // Call AI (or fallback)
-      const { paper, source, model } = await generatePaperWithAi(assignment);
-
-      const saved = await GeneratedPaper.create({
-        assignmentId:     new Types.ObjectId(assignmentId),
-        title:            paper.title,
-        subject:          paper.subject,
-        grade:            paper.grade,
-        totalMarks:       paper.totalMarks,
-        sections:         paper.sections,
-        generationSource: source,
-        modelName:        model,
-        generatedAt:      new Date(),
-      });
-
-      assignment.status = 'completed';
-      await assignment.save();
-
-      console.log('[Result] Paper saved. Source: ' + source + ', Model: ' + model);
-      return saved;
-    } catch (err) {
-      assignment.status = 'failed';
-      await assignment.save();
-      throw err;
-    }
-  },
+    console.log('[Result] Paper saved. Source: ' + source + ', Model: ' + model);
+    return saved;
+  } catch (err) {
+    assignment.status = 'failed';
+    await assignment.save();
+    throw err;
+  }
+},
 
   // ── Get paper by assignment ID ─────────────────────────────────────────────
   async getByAssignmentId(assignmentId: string): Promise<IGeneratedPaperDoc> {
